@@ -205,7 +205,7 @@ def analyze_trends(api_key, news_list, focus_topic, mode="General"):
 st.markdown("<h1 style='text-align: center; margin-bottom: 0;'>🥐 Bakery & Coffee Global Insights</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; font-size: 1.1em; color: #8d6e63; margin-top: 0;'>Professional Market Intelligence Engine</p>", unsafe_allow_html=True)
 
-# Visual Header (อัปเดตใส่ URL รูปภาพของจริง)
+# Visual Header
 st.write("") # เว้นบรรทัดให้สวยงาม
 col_header_1, col_header_2 = st.columns(2)
 with col_header_1:
@@ -218,8 +218,15 @@ st.write("")
 
 # --- Sidebar ---
 with st.sidebar:
-    # รูปโลโก้เมล็ดกาแฟที่ Sidebar
-    st.image("https://images.unsplash.com/photo-1495474472201-4467c6eb233c?q=80&w=400&auto=format&fit=crop", use_container_width=True)
+    # สร้างโลโก้ด้วย CSS แทนรูปภาพเพื่อความเสถียร 100% ไม่มีวันรูปแตก
+    st.markdown("""
+        <div style='text-align: center; padding: 10px 0 20px 0; border-bottom: 1px solid #e0e0e0; margin-bottom: 20px;'>
+            <div style='font-size: 3.5rem; line-height: 1;'>☕🥐</div>
+            <h3 style='color: #4b3621; margin-top: 15px; margin-bottom: 0; font-weight: 700; font-size: 1.2rem; letter-spacing: 1px;'>AI INSIGHTS</h3>
+            <p style='color: #8d6e63; font-size: 0.8rem; margin-top: 5px;'>Strategic Engine</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
     st.header("⚙️ SYSTEM CONTROL")
     api_key_input = st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, "secrets") else st.text_input("Gemini API Key:", type="password")
     
