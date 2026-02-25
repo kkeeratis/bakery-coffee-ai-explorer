@@ -142,7 +142,14 @@ def analyze_trends(api_key, news_list, focus_topic, mode="General"):
         context = "\n- ".join(news_list)
         safe_focus = sanitize_input(focus_topic)
         
-        base_instruction = "IMPORTANT: คุณต้องตอบเป็นภาษาไทยเท่านั้น โดยสรุปเนื้อหาให้เป็นมืออาชีพและนำไปใช้งานทางธุรกิจได้จริง ห้ามใช้ HTML tags เด็ดขาด"
+        # --- กำหนด DNA ของแบรนด์ Kudsan และ Bellinee's ---
+        brand_context = """
+        ในฐานะ 'Chief Strategist' ของ 2 แบรนด์หลัก:
+        1. 'Kudsan' (คัดสรร): จุดแข็งคือ กาแฟและเบเกอรี่ในร้านสะดวกซื้อ, เน้น Mass Premium, ความรวดเร็ว (Grab & Go), เข้าถึงง่าย
+        2. 'Bellinee's' (เบลลินี่): จุดแข็งคือ ร้านเบเกอรี่เฮ้าส์ระดับ Premium, อบสดใหม่ในร้าน (Bake-in-store), บรรยากาศสไตล์ยุโรป, นั่งทานในร้าน
+        """
+        
+        base_instruction = "IMPORTANT: คุณต้องตอบเป็นภาษาไทยเท่านั้น โดยสรุปเนื้อหาให้เป็นมืออาชีพ นำไปใช้งานเจาะตลาดไทยแข่งกับแบรนด์อื่นได้จริง ห้ามใช้ HTML tags เด็ดขาด"
         
         # กำหนด Configuration เริ่มต้น
         gen_config = genai.types.GenerationConfig(temperature=0.7)
@@ -154,7 +161,7 @@ def analyze_trends(api_key, news_list, focus_topic, mode="General"):
                 response_mime_type="application/json"
             )
             prompt = f"""
-            Analyze these news headlines and provide a JSON response.
+            Analyze these news headlines and provide a JSON response for a business dashboard (Focus on Kudsan & Bellinee's implications).
             Headlines: {context}
             Focus Topic: {safe_focus}
             
@@ -164,15 +171,15 @@ def analyze_trends(api_key, news_list, focus_topic, mode="General"):
                 "market_vibrancy": integer between 0 and 100,
                 "top_categories": {{"Category Name 1": integer, "Category Name 2": integer}},
                 "trending_keywords": {{"Keyword 1": integer, "Keyword 2": integer}},
-                "thai_summary": "string containing 1 sentence summary in Thai"
+                "thai_summary": "string containing 1 sentence summary in Thai tailored for Kudsan/Bellinee's executives"
             }}
             """
         elif mode == "Brief":
-            prompt = f"ทำหน้าที่เป็นประธานที่ปรึกษา สรุปข่าวเหล่านี้: {context} โดยเน้นเรื่อง {safe_focus} ตอบ 3 หัวข้อสั้นๆ: 1.เทรนด์ตอนนี้ 2.สิ่งที่ต้องทำ 3.สิ่งที่ต้องจับตา {base_instruction}"
+            prompt = f"{brand_context}\nสรุปข่าวเหล่านี้: {context}\nเน้นเรื่อง: {safe_focus}\nตอบ 3 หัวข้อสั้นๆ: 1. เทรนด์โลกตอนนี้ 2. ไอเดีย/Action โดนๆ สำหรับ Kudsan 3. ไอเดีย/Action พรีเมียมสำหรับ Bellinee's {base_instruction}"
         elif mode == "Executive":
-            prompt = f"วิเคราะห์แผนงานระดับผู้บริหารสำหรับ: {safe_focus} อ้างอิงข้อมูล: {context} แบ่งเป็น 5 ส่วน: Strategic Insights, ROI, Risk, Roadmap, Resources. {base_instruction}"
+            prompt = f"{brand_context}\nวิเคราะห์แผนงานระดับผู้บริหารสำหรับ: {safe_focus}\nอ้างอิงข้อมูล: {context}\nแบ่งเป็น 5 ส่วน: 1. Global Insights 2. แผนเอาชนะคู่แข่งในตลาดไทย 3. Roadmap สำหรับ Kudsan 4. Roadmap สำหรับ Bellinee's 5. Risk & Resources {base_instruction}"
         else:
-            prompt = f"วิเคราะห์ภาพรวมตลาดเบเกอรี่และกาแฟสำหรับ: {safe_focus} ข้อมูลอ้างอิง: {context} แบ่งเป็น 4 ส่วน: Global Trends, Thai Adaptation, Signature Pairings, Menu Ideas. {base_instruction}"
+            prompt = f"{brand_context}\nวิเคราะห์ภาพรวมกลยุทธ์สินค้าสำหรับ: {safe_focus}\nข้อมูลอ้างอิง: {context}\nแบ่งเป็น 4 ส่วน: 1. Global Trends 2. ไอเดียเมนู/แพ็กเกจจิ้งใหม่สำหรับ Kudsan 3. ไอเดียเมนู Signature/Pairings สำหรับ Bellinee's 4. การปรับตัวให้เข้ากับลิ้นคนไทยและการทำการตลาด (Thai Adaptation) {base_instruction}"
 
         for model_name in models_to_try:
             try:
@@ -198,16 +205,21 @@ def analyze_trends(api_key, news_list, focus_topic, mode="General"):
 st.markdown("<h1 style='text-align: center; margin-bottom: 0;'>🥐 Bakery & Coffee Global Insights</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; font-size: 1.1em; color: #8d6e63; margin-top: 0;'>Professional Market Intelligence Engine</p>", unsafe_allow_html=True)
 
-# Visual Header
+# Visual Header (อัปเดตใส่ URL รูปภาพของจริง)
+st.write("") # เว้นบรรทัดให้สวยงาม
 col_header_1, col_header_2 = st.columns(2)
 with col_header_1:
-    st.markdown("")
+    # รูปเบเกอรี่
+    st.image("https://images.unsplash.com/photo-1509440159596-0249088772ff?q=80&w=800&auto=format&fit=crop", use_container_width=True)
 with col_header_2:
-    st.markdown("")
+    # รูปกาแฟลาเต้อาร์ต
+    st.image("https://images.unsplash.com/photo-1497935586351-b67a49e012bf?q=80&w=800&auto=format&fit=crop", use_container_width=True)
+st.write("")
 
 # --- Sidebar ---
 with st.sidebar:
-    st.markdown("")
+    # รูปโลโก้เมล็ดกาแฟที่ Sidebar
+    st.image("https://images.unsplash.com/photo-1495474472201-4467c6eb233c?q=80&w=400&auto=format&fit=crop", use_container_width=True)
     st.header("⚙️ SYSTEM CONTROL")
     api_key_input = st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, "secrets") else st.text_input("Gemini API Key:", type="password")
     
@@ -244,16 +256,16 @@ with tab1:
 
 with tab2:
     if 'news_data' in st.session_state:
-        st.subheader("AI Strategic Product Analysis (Thai)")
+        st.subheader("AI Strategic Product Analysis (Kudsan & Bellinee's Focus)")
         if st.button("✨ Synthesize Strategy"):
-            with st.spinner("Analysing global trends in Thai..."):
+            with st.spinner("Analysing global trends for your brands..."):
                 analysis = analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "General")
                 # แสดงผลอย่างปลอดภัย ป้องกัน XSS
                 st.markdown(f'<div class="report-card">{analysis}</div>', unsafe_allow_html=True)
 
 with tab3:
     if 'news_data' in st.session_state:
-        st.subheader("C-Level Roadmap (Thai)")
+        st.subheader("C-Level Roadmap (Kudsan & Bellinee's Focus)")
         if st.button("🚀 Draft Roadmap"):
             with st.spinner("Preparing executive roadmap..."):
                 roadmap = analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "Executive")
@@ -261,7 +273,7 @@ with tab3:
 
 with tab4:
     if 'news_data' in st.session_state:
-        st.subheader("Quick Insight Brief (Thai)")
+        st.subheader("Quick Insight Brief (Brand Specific)")
         if st.button("⚡ Get Summary"):
             with st.spinner("Extracting core brief..."):
                 brief = analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "Brief")
@@ -305,4 +317,4 @@ with tab5:
         st.info("Fetch headlines first.")
 
 st.divider()
-st.markdown("<div style='text-align: center; color: #bdbdbd; font-size: 0.8em;'>Global AI Insights Engine | Secured Enterprise Grade</div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align: center; color: #bdbdbd; font-size: 0.8em;'>Global AI Insights Engine | Secured Enterprise Grade | <b>Tailored for Kudsan & Bellinee's</b></div>", unsafe_allow_html=True)
