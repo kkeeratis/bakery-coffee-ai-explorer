@@ -13,7 +13,6 @@ import html
 # --- UI Configuration ---
 st.set_page_config(
     page_title="Bakery & Coffee Global Insights", 
-    page_icon="🥐☕", 
     layout="wide"
 )
 
