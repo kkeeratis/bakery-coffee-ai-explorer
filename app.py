@@ -10,41 +10,78 @@ import re
 
 # --- UI Configuration ---
 st.set_page_config(
-    page_title="Bakery & Coffee AI Explorer", 
-    page_icon="🥐☕", 
+    page_title="Bakery & Coffee Global Insights", 
+    page_icon="🥐", 
     layout="wide"
 )
 
-# --- Custom CSS ---
+# --- Enhanced Custom CSS ---
 st.markdown("""
     <style>
-    .main { background-color: #fdf5e6; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
+    }
+    
+    .main { 
+        background-color: #fdfaf6; 
+    }
+    
     .stButton>button {
         width: 100%;
-        border-radius: 12px;
+        border-radius: 8px;
         height: 3.5em;
-        background-color: #6f4e37;
+        background-color: #4b3621;
         color: white;
-        font-weight: bold;
+        font-weight: 600;
         border: none;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         transition: all 0.3s ease;
     }
+    
     .stButton>button:hover {
-        background-color: #4b3621;
-        transform: translateY(-2px);
+        background-color: #6f4e37;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
     }
+    
     .report-card, .executive-card, .insight-card {
         background-color: white;
-        padding: 25px;
-        border-radius: 15px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-        margin-bottom: 20px;
-        line-height: 1.6;
+        padding: 30px;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+        margin-bottom: 25px;
+        line-height: 1.7;
+        color: #2d241e;
     }
-    .report-card { border-left: 8px solid #6f4e37; }
-    .executive-card { border-top: 8px solid #1a237e; background-color: #f8f9fa; }
-    .insight-card { border-left: 8px solid #00695c; color: #004d40; }
+    
+    .report-card { border-left: 6px solid #8d6e63; }
+    .executive-card { border-top: 6px solid #1a237e; background-color: #fcfdfe; }
+    .insight-card { border-left: 6px solid #00796b; }
+    
+    h1, h2, h3 {
+        color: #3e2723;
+    }
+    
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 24px;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: transparent;
+        border-radius: 4px 4px 0 0;
+        gap: 1px;
+        padding-top: 10px;
+        padding-bottom: 10px;
+    }
+
+    .stTabs [aria-selected="true"] {
+        background-color: #f5ebe0;
+        border-bottom: 3px solid #6f4e37;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -80,13 +117,10 @@ def fetch_trends(category="Both", search_query=""):
             response.raise_for_status()
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            # ดึงข้อมูลจากหลายๆ แท็กที่น่าจะเป็นหัวข้อข่าว
             tags_to_check = soup.find_all(['h2', 'h3', 'h4', 'a'])
             for item in tags_to_check:
                 text = item.get_text().strip()
-                # กรองความยาวพาดหัวข่าวที่เหมาะสม
                 if 35 < len(text) < 150:
-                    # ป้องกันการดึงเมนูซ้ำๆ หรือข้อความระบบ
                     if any(x in text.lower() for x in ['cookie', 'privacy', 'contact', 'subscribe', 'terms']):
                         continue
                     all_headlines.append(text)
@@ -95,19 +129,18 @@ def fetch_trends(category="Both", search_query=""):
             
     unique_all = list(dict.fromkeys(all_headlines))
     
-    # หากมีการค้นหา ให้ลองกรองดู
     if search_query:
         filtered = [h for h in unique_all if search_query.lower() in h.lower()]
         if filtered:
-            return filtered[:25], True # พบตรงตัว
+            return filtered[:25], True
         else:
-            return unique_all[:25], False # ไม่พบตรงตัวแต่คืนค่าทั้งหมดให้ AI วิเคราะห์ต่อ
+            return unique_all[:25], False
     
     return unique_all[:25], True
 
 # --- AI Analysis ---
 def analyze_trends(api_key, news_list, focus_topic, mode="General"):
-    if not api_key: return "⚠️ กรุณากรอก API Key ในแถบด้านข้าง"
+    if not api_key: return "⚠️ Please provide a valid API Key in the sidebar."
     
     try:
         genai.configure(api_key=api_key)
@@ -118,65 +151,101 @@ def analyze_trends(api_key, news_list, focus_topic, mode="General"):
         context = "\n- ".join(news_list)
         safe_focus = sanitize_input(focus_topic)
         
+        # Professional English Prompts
         if mode == "Brief":
-            prompt = f"คุณคือประธานที่ปรึกษาธุรกิจ สรุป 'แก่น' สำคัญจากข่าวเหล่านี้: {context} โดยเน้นไปที่หัวข้อ '{safe_focus}' แม้ในพาดหัวจะไม่มีคำนี้ตรงๆ แต่ให้วิเคราะห์ความเชื่อมโยง ตอบ 3 ข้อสั้นๆ: 1.เทรนด์ตอนนี้ 2.สิ่งที่ต้องทำทันที 3.สิ่งที่ต้องจับตาต่อ"
+            prompt = f"Act as a C-suite Strategic Advisor. Synthesize core insights from these news items: {context}. Focus on '{safe_focus}'. Provide 3 concise points: 1. Current Trend Landscape, 2. Immediate Strategic Actions, 3. Future Monitoring Items. Response must be professional and data-driven."
         elif mode == "Executive":
-            prompt = f"วิเคราะห์กลยุทธ์เชิงลึกสำหรับผู้บริหาร หัวข้อ: {safe_focus} จากข้อมูลข่าว: {context} สรุป 5 หัวข้อ: Strategic Insights, ROI, Risks, Roadmap, Resources."
+            prompt = f"Act as a Business Consultant. Provide an in-depth strategic analysis for executives regarding: {safe_focus}. Based on: {context}. Structured in 5 sections: Strategic Insights, Business Impact/ROI, Risk Assessment, Executive Roadmap, and Resource Requirements."
         else:
-            prompt = f"วิเคราะห์แนวทาง Cafe & Bakery ระดับโลก หัวข้อ: {safe_focus} อ้างอิงจากข่าว: {context} สรุป 4 หัวข้อ: Global Trends, Thai Fit, Pairings, Menu Ideas."
+            prompt = f"Act as a Global Bakery & Coffee Market Expert. Analyze trends and innovation for: {safe_focus}. Based on news: {context}. Provide 4 sections: Global Trends Analysis, Local Market Adaptation, Signature Pairings, and Product Innovation Ideas."
 
         for model_name in models_to_try:
             try:
                 model = genai.GenerativeModel(model_name=model_name)
                 response = model.generate_content(prompt)
-                return f"*(วิเคราะห์โดย: `{model_name}`)*\n\n" + response.text
+                return f"*(Analysed by: `{model_name}`)*\n\n" + response.text
             except: continue
-        return "❌ ไม่สามารถประมวลผล AI ได้"
+        return "❌ AI Processing Failed. Please try again later."
     except Exception as e: return f"❌ Error: {str(e)}"
 
-# --- UI ---
-st.title("☕ Bakery & Coffee Trend AI Explorer")
+# --- UI Header ---
+st.markdown("<h1 style='text-align: center;'>🥐 Bakery & Coffee Global AI Explorer</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; font-size: 1.2em; color: #6d4c41;'>Strategic Market Intelligence and Trend Analysis</p>", unsafe_allow_html=True)
 
+# Visual Assets
+col_img1, col_img2 = st.columns(2)
+with col_img1:
+    st.markdown("### ")
+with col_img2:
+    st.markdown("### ")
+
+# --- Sidebar ---
 with st.sidebar:
-    st.header("🔑 ตั้งค่าระบบ")
+    st.image("https://www.svgrepo.com/show/395893/bread.svg", width=100)
+    st.header("System Configuration")
     api_key_input = st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, "secrets") else st.text_input("Gemini API Key:", type="password")
     
-    category_choice = st.selectbox("เลือกหมวดหมู่:", ["Both", "Bakery", "Coffee"])
-    st.info("💡 เคล็ดลับ: พิมพ์ภาษาอังกฤษ (เช่น Coffee, Sourdough) เพื่อดึงข้อมูลได้แม่นยำขึ้น")
-    user_focus = sanitize_input(st.text_input("หัวข้อที่สนใจพิเศษ:", placeholder="เช่น Specialty Coffee"))
+    category_choice = st.selectbox("Market Category:", ["Both", "Bakery", "Coffee"])
+    st.info("💡 Pro Tip: Use specific keywords like 'Sourdough', 'Vegan', or 'Cold Brew' for focused results.")
+    user_focus = sanitize_input(st.text_input("Area of Interest:", placeholder="e.g., Specialty Coffee"))
     
     st.divider()
-    st.caption(f"SDK Version: {genai.__version__}")
+    st.caption(f"Engine Version: {genai.__version__}")
+    st.caption("© 2024 AI Market Intelligence")
 
-tab1, tab2, tab3, tab4 = st.tabs(["📊 เทรนด์ล่าสุด", "💡 วิเคราะห์สินค้า", "🎯 แผนดำเนินงาน", "⚡ สรุป Insight"])
+# --- Tabs ---
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📊 Market Headlines", 
+    "💡 Product Strategy", 
+    "🎯 Executive Roadmap", 
+    "⚡ Quick Insights"
+])
 
 with tab1:
-    if st.button("🔄 ดึงข้อมูล (Fetch Data)"):
-        with st.spinner("กำลังอัปเดตข้อมูล..."):
+    st.subheader("Global Market Intelligence Feed")
+    if st.button("🔄 Fetch Latest Trends"):
+        with st.spinner("Connecting to global news servers..."):
             data, is_exact = fetch_trends(category_choice, user_focus)
             st.session_state['news_data'] = data
             if user_focus and not is_exact:
-                st.warning(f"⚠️ ไม่พบคำว่า '{user_focus}' ในพาดหัวข่าววันนี้โดยตรง ระบบจึงดึงข่าวเทรนด์ภาพรวมมาให้ AI วิเคราะห์แทนครับ")
+                st.warning(f"Note: Specific headlines for '{user_focus}' were not found. Displaying general market trends for AI correlation.")
             elif data:
-                st.success(f"พบข้อมูลเทรนด์ {len(data)} รายการ")
+                st.success(f"Successfully fetched {len(data)} global headlines.")
 
     if 'news_data' in st.session_state:
-        st.table(pd.DataFrame(st.session_state['news_data'], columns=["Trending News Headlines"]))
+        st.table(pd.DataFrame(st.session_state['news_data'], columns=["Global Trending Topics"]))
+    else:
+        st.info("Click 'Fetch Latest Trends' to start gathering market data.")
 
 with tab2:
     if 'news_data' in st.session_state:
-        if st.button("✨ วิเคราะห์แผนสินค้า"):
-            with st.spinner("AI กำลังประมวลผล..."):
-                st.markdown(f'<div class="report-card">{analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "General")}</div>', unsafe_allow_html=True)
+        st.subheader("AI-Driven Product Strategy")
+        if st.button("✨ Generate Strategy"):
+            with st.spinner("AI is synthesizing market data..."):
+                analysis = analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "General")
+                st.markdown(f'<div class="report-card">{analysis}</div>', unsafe_allow_html=True)
+    else:
+        st.info("Please fetch market headlines first.")
 
 with tab3:
     if 'news_data' in st.session_state:
-        if st.button("🚀 สรุป Action Plan"):
-            with st.spinner("AI กำลังวาง Roadmap..."):
-                st.markdown(f'<div class="executive-card">{analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "Executive")}</div>', unsafe_allow_html=True)
+        st.subheader("Strategic Executive Roadmap")
+        if st.button("🚀 Develop Roadmap"):
+            with st.spinner("Designing executive action plan..."):
+                roadmap = analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "Executive")
+                st.markdown(f'<div class="executive-card">{roadmap}</div>', unsafe_allow_html=True)
+    else:
+        st.info("Please fetch market headlines first.")
 
 with tab4:
     if 'news_data' in st.session_state:
-        if st.button("⚡ สรุปฉบับย่อ"):
-            with st.spinner("AI กำลังสกัด Insight..."):
-                st.markdown(f'<div class="insight-card">{analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "Brief")}</div>', unsafe_allow_html=True)
+        st.subheader("Executive Quick Brief")
+        if st.button("⚡ Get Quick Insights"):
+            with st.spinner("Extracting core insights..."):
+                brief = analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "Brief")
+                st.markdown(f'<div class="insight-card">{brief}</div>', unsafe_allow_html=True)
+    else:
+        st.info("Please fetch market headlines first.")
+
+st.divider()
+st.markdown("<div style='text-align: center; color: #9e9e9e;'>Global AI Insights Engine for Modern Bakeries & Roasteries</div>", unsafe_allow_html=True)
