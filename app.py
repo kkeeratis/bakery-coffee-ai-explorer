@@ -151,13 +151,13 @@ def analyze_trends(api_key, news_list, focus_topic, mode="General"):
         context = "\n- ".join(news_list)
         safe_focus = sanitize_input(focus_topic)
         
-        # Professional English Prompts
+        # Prompts strictly asking for Thai Response for local stakeholders
         if mode == "Brief":
-            prompt = f"Act as a C-suite Strategic Advisor. Synthesize core insights from these news items: {context}. Focus on '{safe_focus}'. Provide 3 concise points: 1. Current Trend Landscape, 2. Immediate Strategic Actions, 3. Future Monitoring Items. Response must be professional and data-driven."
+            prompt = f"Act as a C-suite Strategic Advisor. Synthesize core insights from these news items: {context}. Focus on '{safe_focus}'. Provide 3 concise points: 1. Current Trend Landscape, 2. Immediate Strategic Actions, 3. Future Monitoring Items. ANSWER IN THAI LANGUAGE for Thai Executives."
         elif mode == "Executive":
-            prompt = f"Act as a Business Consultant. Provide an in-depth strategic analysis for executives regarding: {safe_focus}. Based on: {context}. Structured in 5 sections: Strategic Insights, Business Impact/ROI, Risk Assessment, Executive Roadmap, and Resource Requirements."
+            prompt = f"Act as a Business Consultant. Provide an in-depth strategic analysis for executives regarding: {safe_focus}. Based on: {context}. Structured in 5 sections: Strategic Insights, Business Impact/ROI, Risk Assessment, Executive Roadmap, and Resource Requirements. ANSWER IN THAI LANGUAGE for Thai Executives."
         else:
-            prompt = f"Act as a Global Bakery & Coffee Market Expert. Analyze trends and innovation for: {safe_focus}. Based on news: {context}. Provide 4 sections: Global Trends Analysis, Local Market Adaptation, Signature Pairings, and Product Innovation Ideas."
+            prompt = f"Act as a Global Bakery & Coffee Market Expert. Analyze trends and innovation for: {safe_focus}. Based on news: {context}. Provide 4 sections: Global Trends Analysis, Local Market Adaptation, Signature Pairings, and Product Innovation Ideas. ANSWER IN THAI LANGUAGE for Thai Executives."
 
         for model_name in models_to_try:
             try:
@@ -172,21 +172,22 @@ def analyze_trends(api_key, news_list, focus_topic, mode="General"):
 st.markdown("<h1 style='text-align: center;'>🥐 Bakery & Coffee Global AI Explorer</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; font-size: 1.2em; color: #6d4c41;'>Strategic Market Intelligence and Trend Analysis</p>", unsafe_allow_html=True)
 
-# Visual Assets
+# Visual Assets with standardized image format
 col_img1, col_img2 = st.columns(2)
 with col_img1:
-    st.markdown("### ")
+    st.markdown("")
 with col_img2:
-    st.markdown("### ")
+    st.markdown("")
 
 # --- Sidebar ---
 with st.sidebar:
-    st.image("https://www.svgrepo.com/show/395893/bread.svg", width=100)
-    st.header("System Configuration")
+    # Fixed sidebar header with Emoji and Title for better compatibility
+    st.markdown("### 🏛️ SYSTEM CONFIG")
     api_key_input = st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, "secrets") else st.text_input("Gemini API Key:", type="password")
     
+    st.divider()
     category_choice = st.selectbox("Market Category:", ["Both", "Bakery", "Coffee"])
-    st.info("💡 Pro Tip: Use specific keywords like 'Sourdough', 'Vegan', or 'Cold Brew' for focused results.")
+    st.info("💡 Pro Tip: Use English keywords for better search results, but the AI will analyze in Thai.")
     user_focus = sanitize_input(st.text_input("Area of Interest:", placeholder="e.g., Specialty Coffee"))
     
     st.divider()
@@ -219,9 +220,9 @@ with tab1:
 
 with tab2:
     if 'news_data' in st.session_state:
-        st.subheader("AI-Driven Product Strategy")
+        st.subheader("AI-Driven Product Strategy (Thai Analysis)")
         if st.button("✨ Generate Strategy"):
-            with st.spinner("AI is synthesizing market data..."):
+            with st.spinner("AI is synthesizing market data in Thai..."):
                 analysis = analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "General")
                 st.markdown(f'<div class="report-card">{analysis}</div>', unsafe_allow_html=True)
     else:
@@ -229,9 +230,9 @@ with tab2:
 
 with tab3:
     if 'news_data' in st.session_state:
-        st.subheader("Strategic Executive Roadmap")
+        st.subheader("Strategic Executive Roadmap (Thai Analysis)")
         if st.button("🚀 Develop Roadmap"):
-            with st.spinner("Designing executive action plan..."):
+            with st.spinner("Designing executive action plan in Thai..."):
                 roadmap = analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "Executive")
                 st.markdown(f'<div class="executive-card">{roadmap}</div>', unsafe_allow_html=True)
     else:
@@ -239,9 +240,9 @@ with tab3:
 
 with tab4:
     if 'news_data' in st.session_state:
-        st.subheader("Executive Quick Brief")
+        st.subheader("Executive Quick Brief (Thai Analysis)")
         if st.button("⚡ Get Quick Insights"):
-            with st.spinner("Extracting core insights..."):
+            with st.spinner("Extracting core insights in Thai..."):
                 brief = analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "Brief")
                 st.markdown(f'<div class="insight-card">{brief}</div>', unsafe_allow_html=True)
     else:
