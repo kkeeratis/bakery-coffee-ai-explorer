@@ -5,10 +5,18 @@ from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
 import google.generativeai as genai
 import pandas as pd
-import time
 import re
 import json
-import html
+
+# --- Constants & Configuration ---
+# กำหนดค่าคงที่สำหรับการเชื่อมต่อเครือข่าย เพื่อให้แก้ไขได้ง่ายในอนาคต
+REQUEST_TIMEOUT: int = 15
+MAX_HEADLINES: int = 25
+REQUEST_HEADERS: dict[str, str] = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+}
+BAKERY_URL: str = "https://www.bakeryandsnacks.com/Trends"
+COFFEE_URL: str = "https://www.worldcoffeeportal.com/News"
 
 # --- UI Configuration ---
 st.set_page_config(
@@ -61,7 +69,7 @@ st.markdown("""
     .executive-card { border-top: 8px solid #283593; background-color: #fbfcfe; }
     .insight-card { border-left: 8px solid #00897b; }
     .dashboard-card { border-top: 4px solid #4b3621; }
-    .social-card { border-left: 8px solid #e91e63; background-color: #fff9fa; } /* สีชมพูสำหรับ Social */
+    .social-card { border-left: 8px solid #e91e63; background-color: #fff9fa; } 
     
     h1, h2, h3 {
         color: #3e2723;
@@ -78,7 +86,8 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- Network & Scraper ---
-def get_secure_session():
+def get_secure_session() -> requests.Session:
+    """สร้าง HTTP Session ที่มีความทนทานต่อความผิดพลาดของเครือข่าย (Resilient Network)"""
     session = requests.Session()
     retry = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
     adapter = HTTPAdapter(max_retries=retry)
@@ -86,21 +95,27 @@ def get_secure_session():
     session.mount('https://', adapter)
     return session
 
-def sanitize_input(text):
-    if not text: return ""
-    return re.sub(r'[<>{}\[\]`\'"]', '', text[:100]).strip()
+def sanitize_input(text: str) -> str:
+    """ทำความสะอาดข้อความ Input จากผู้ใช้เพื่อป้องกัน Code Injection"""
+    if not text: 
+        return ""
+    return re.sub(r'[<>{}\[\]`\'"]', '', str(text)[:100]).strip()
 
-def fetch_trends(category="Both", search_query=""):
-    all_headlines = []
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
-    sources = []
-    if category in ["Bakery", "Both"]: sources.append("https://www.bakeryandsnacks.com/Trends")
-    if category in ["Coffee", "Both"]: sources.append("https://www.worldcoffeeportal.com/News")
+def fetch_trends(category: str = "Both", search_query: str = "") -> tuple[list[str], bool]:
+    """ดึงข้อมูลหัวข้อข่าวล่าสุดจากเว็บไซต์อุตสาหกรรมเป้าหมาย"""
+    all_headlines: list[str] = []
+    sources: list[str] = []
+    
+    if category in ["Bakery", "Both"]: 
+        sources.append(BAKERY_URL)
+    if category in ["Coffee", "Both"]: 
+        sources.append(COFFEE_URL)
+        
     session = get_secure_session()
     
     for url in sources:
         try:
-            response = session.get(url, headers=headers, timeout=15)
+            response = session.get(url, headers=REQUEST_HEADERS, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
             soup = BeautifulSoup(response.content, 'html.parser')
             
@@ -112,28 +127,33 @@ def fetch_trends(category="Both", search_query=""):
                     if any(x in text.lower() for x in ignore_list):
                         continue
                     all_headlines.append(text)
-        except:
+        except requests.RequestException:
             continue
             
+    # ลบข้อมูลซ้ำซ้อน
     unique_all = list(dict.fromkeys(all_headlines))
     
     if search_query:
         filtered = [h for h in unique_all if search_query.lower() in h.lower()]
         if filtered:
-            return filtered[:25], True
+            return filtered[:MAX_HEADLINES], True
         else:
-            return unique_all[:25], False
+            return unique_all[:MAX_HEADLINES], False
             
-    return unique_all[:25], True
+    return unique_all[:MAX_HEADLINES], True
 
 # --- AI Core Logic ---
-def analyze_trends(api_key, news_list, focus_topic, mode="General"):
-    if not api_key: return "⚠️ Please provide a Gemini API Key in the sidebar."
+def analyze_trends(api_key: str, news_list: list[str], focus_topic: str, mode: str = "General") -> str:
+    """ประมวลผลข้อมูลข่าวด้วยโมเดล Gemini AI อ้างอิงบริบทของแบรนด์ Kudsan และ Bellinee's"""
+    if not api_key: 
+        return "⚠️ Please provide a Gemini API Key in the sidebar."
+        
     try:
         genai.configure(api_key=api_key)
         available_models = [m.name.replace('models/', '') for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         preferred = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
         models_to_try = [m for m in preferred if m in available_models] + [m for m in available_models if m not in preferred]
+        
         context = "\n- ".join(news_list)
         safe_focus = sanitize_input(focus_topic)
         
@@ -149,6 +169,7 @@ def analyze_trends(api_key, news_list, focus_topic, mode="General"):
         gen_config = genai.types.GenerationConfig(temperature=0.7)
         
         if mode == "Dashboard":
+            # บังคับโครงสร้างเป็น JSON 100% สำหรับการทำ Data Visualization
             gen_config = genai.types.GenerationConfig(temperature=0.2, response_mime_type="application/json")
             prompt = f"""
             Analyze these news headlines and provide a JSON response for a business dashboard.
@@ -164,7 +185,6 @@ def analyze_trends(api_key, news_list, focus_topic, mode="General"):
             }}
             """
         elif mode == "Social":
-            # โหมดใหม่: จำลอง Social Listening
             prompt = f"""
             {brand_context}
             คุณคือผู้เชี่ยวชาญด้าน 'Social Listening' และพฤติกรรมผู้บริโภคชาวไทย (เช่น ชาว Pantip, X/Twitter, TikTok)
@@ -188,19 +208,24 @@ def analyze_trends(api_key, news_list, focus_topic, mode="General"):
             try:
                 model = genai.GenerativeModel(model_name=model_name)
                 response = model.generate_content(prompt, generation_config=gen_config)
-                if mode == "Dashboard": return response.text
+                
+                if mode == "Dashboard": 
+                    return response.text
+                    
+                # ป้องกัน XSS Injection ก่อนแสดงผล
                 safe_response = response.text.replace("<", "&lt;").replace(">", "&gt;")
                 return f"*(Analysed by: `{model_name}`)*\n\n" + safe_response
             except Exception as e:
                 print(f"Model Error ({model_name}): {e}") 
                 continue
+                
         return "❌ AI Processing Failed. ขัดข้องหรือโควต้ารายวันอาจจะเต็ม กรุณาลองใหม่ภายหลัง"
     except Exception as e: 
         print(f"System Error: {str(e)}")
         return "❌ ระบบขัดข้องในการเชื่อมต่อ AI กรุณาตรวจสอบการตั้งค่า"
 
 # --- UI Header ---
-st.markdown("<h1 style='text-align: center; margin-bottom: 0;'>🥐 Bakery & Coffee Global Insights</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; margin-bottom: 0;'>Bakery & Coffee Global Insights</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; font-size: 1.1em; color: #8d6e63; margin-top: 0;'>Professional Market Intelligence Engine</p>", unsafe_allow_html=True)
 
 st.write("") 
@@ -215,7 +240,6 @@ st.write("")
 with st.sidebar:
     st.markdown("""
         <div style='text-align: center; padding: 10px 0 20px 0; border-bottom: 1px solid #e0e0e0; margin-bottom: 20px;'>
-            <div style='font-size: 3.5rem; line-height: 1;'>☕🥐</div>
             <h3 style='color: #4b3621; margin-top: 15px; margin-bottom: 0; font-weight: 700; font-size: 1.2rem; letter-spacing: 1px;'>AI INSIGHTS</h3>
             <p style='color: #8d6e63; font-size: 0.8rem; margin-top: 5px;'>Strategic Engine</p>
         </div>
