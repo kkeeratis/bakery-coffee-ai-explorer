@@ -7,11 +7,18 @@ import google.generativeai as genai
 import pandas as pd
 import re
 import json
+import time
+from datetime import datetime
 
 # --- Constants & Configuration ---
-# กำหนดค่าคงที่สำหรับการเชื่อมต่อเครือข่าย เพื่อให้แก้ไขได้ง่ายในอนาคต
 REQUEST_TIMEOUT: int = 15
 MAX_HEADLINES: int = 25
+
+# --- Security & Limits Configuration ---
+DAILY_AI_LIMIT: int = 20        # โควตาสูงสุดต่อวันต่อผู้ใช้
+COOLDOWN_SECONDS: int = 30      # เวลาหน่วง (วินาที) ป้องกันการกดรัว
+ACCESS_PASSWORD: str = "bakery2026" # รหัสผ่านสำหรับปลดล็อค AI
+
 REQUEST_HEADERS: dict[str, str] = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
@@ -23,6 +30,21 @@ st.set_page_config(
     page_title="Bakery & Coffee Global Insights", 
     layout="wide"
 )
+
+# --- Session State (AI Usage Tracking) ---
+if "last_ai_time" not in st.session_state:
+    st.session_state.last_ai_time = 0
+
+if "daily_ai_count" not in st.session_state:
+    st.session_state.daily_ai_count = 0
+
+if "request_date" not in st.session_state:
+    st.session_state.request_date = datetime.now().date()
+
+# รีเซ็ตโควตาทุกวันใหม่
+if st.session_state.request_date != datetime.now().date():
+    st.session_state.daily_ai_count = 0
+    st.session_state.request_date = datetime.now().date()
 
 # --- Enhanced Custom CSS ---
 st.markdown("""
@@ -85,9 +107,8 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- Network & Scraper ---
+# --- Utilities & Checks ---
 def get_secure_session() -> requests.Session:
-    """สร้าง HTTP Session ที่มีความทนทานต่อความผิดพลาดของเครือข่าย (Resilient Network)"""
     session = requests.Session()
     retry = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
     adapter = HTTPAdapter(max_retries=retry)
@@ -96,20 +117,32 @@ def get_secure_session() -> requests.Session:
     return session
 
 def sanitize_input(text: str) -> str:
-    """ทำความสะอาดข้อความ Input จากผู้ใช้เพื่อป้องกัน Code Injection"""
     if not text: 
         return ""
     return re.sub(r'[<>{}\[\]`\'"]', '', str(text)[:100]).strip()
 
+def check_ai_allowance() -> tuple[bool, str]:
+    """ตรวจสอบโควตาและเวลาหน่วง (Cooldown) ก่อนเรียก AI"""
+    if st.session_state.daily_ai_count >= DAILY_AI_LIMIT:
+        return False, "❌ ท่านใช้งาน AI ครบโควตารายวันแล้ว (20 ครั้ง/วัน)"
+    
+    now = time.time()
+    elapsed = now - st.session_state.last_ai_time
+    if elapsed < COOLDOWN_SECONDS:
+        remain = int(COOLDOWN_SECONDS - elapsed)
+        return False, f"⏳ กรุณารอ {remain} วินาทีก่อนวิเคราะห์ครั้งถัดไป"
+        
+    return True, ""
+
+# --- Network & Scraper (Cached) ---
+# การดึงข่าวฟรี ซ่อน Spinner และ Cache ไว้ 1 ชั่วโมง
+@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_trends(category: str = "Both", search_query: str = "") -> tuple[list[str], bool]:
-    """ดึงข้อมูลหัวข้อข่าวล่าสุดจากเว็บไซต์อุตสาหกรรมเป้าหมาย"""
     all_headlines: list[str] = []
     sources: list[str] = []
     
-    if category in ["Bakery", "Both"]: 
-        sources.append(BAKERY_URL)
-    if category in ["Coffee", "Both"]: 
-        sources.append(COFFEE_URL)
+    if category in ["Bakery", "Both"]: sources.append(BAKERY_URL)
+    if category in ["Coffee", "Both"]: sources.append(COFFEE_URL)
         
     session = get_secure_session()
     
@@ -130,7 +163,6 @@ def fetch_trends(category: str = "Both", search_query: str = "") -> tuple[list[s
         except requests.RequestException:
             continue
             
-    # ลบข้อมูลซ้ำซ้อน
     unique_all = list(dict.fromkeys(all_headlines))
     
     if search_query:
@@ -142,90 +174,86 @@ def fetch_trends(category: str = "Both", search_query: str = "") -> tuple[list[s
             
     return unique_all[:MAX_HEADLINES], True
 
-# --- AI Core Logic ---
-def analyze_trends(api_key: str, news_list: list[str], focus_topic: str, mode: str = "General") -> str:
-    """ประมวลผลข้อมูลข่าวด้วยโมเดล Gemini AI อ้างอิงบริบทของแบรนด์ Kudsan และ Bellinee's"""
-    if not api_key: 
-        return "⚠️ Please provide a Gemini API Key in the sidebar."
-        
-    try:
-        genai.configure(api_key=api_key)
-        available_models = [m.name.replace('models/', '') for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        preferred = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
-        models_to_try = [m for m in preferred if m in available_models] + [m for m in available_models if m not in preferred]
-        
-        context = "\n- ".join(news_list)
-        safe_focus = sanitize_input(focus_topic)
-        
-        # --- กำหนด DNA ของแบรนด์ Kudsan และ Bellinee's ---
-        brand_context = """
-        ในฐานะ 'Chief Strategist' ของ 2 แบรนด์หลัก:
-        1. 'Kudsan' (คัดสรร): จุดแข็งคือ กาแฟและเบเกอรี่ในร้านสะดวกซื้อ, เน้น Mass Premium, ความรวดเร็ว (Grab & Go), เข้าถึงง่าย
-        2. 'Bellinee's' (เบลลินี่): จุดแข็งคือ ร้านเบเกอรี่เฮ้าส์ระดับ Premium, อบสดใหม่ในร้าน (Bake-in-store), บรรยากาศสไตล์ยุโรป, นั่งทานในร้าน
+# --- AI Core Logic (Cached & Secured) ---
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_ai_response(api_key: str, context: str, safe_focus: str, mode: str) -> str:
+    """ฟังก์ชันเนื้อแท้ของ AI ที่ถูก Cache เพื่อประหยัดโควตา API หากค้นหาเรื่องเดิม"""
+    genai.configure(api_key=api_key)
+    available_models = [m.name.replace('models/', '') for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    preferred = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
+    models_to_try = [m for m in preferred if m in available_models] + [m for m in available_models if m not in preferred]
+    
+    brand_context = """
+    ในฐานะ 'Chief Strategist' ของ 2 แบรนด์หลัก:
+    1. 'Kudsan' (คัดสรร): จุดแข็งคือ กาแฟและเบเกอรี่ในร้านสะดวกซื้อ, เน้น Mass Premium, ความรวดเร็ว (Grab & Go), เข้าถึงง่าย
+    2. 'Bellinee's' (เบลลินี่): จุดแข็งคือ ร้านเบเกอรี่เฮ้าส์ระดับ Premium, อบสดใหม่ในร้าน (Bake-in-store), บรรยากาศสไตล์ยุโรป, นั่งทานในร้าน
+    """
+    base_instruction = "IMPORTANT: คุณต้องตอบเป็นภาษาไทยเท่านั้น โดยสรุปเนื้อหาให้เป็นมืออาชีพ นำไปใช้งานเจาะตลาดไทยแข่งกับแบรนด์อื่นได้จริง ห้ามใช้ HTML tags เด็ดขาด"
+    
+    gen_config = genai.types.GenerationConfig(temperature=0.7)
+    
+    if mode == "Dashboard":
+        gen_config = genai.types.GenerationConfig(temperature=0.2, response_mime_type="application/json")
+        prompt = f"""
+        Analyze these news headlines and provide a JSON response for a business dashboard.
+        Headlines: {context}
+        Focus Topic: {safe_focus}
+        Required JSON Schema:
+        {{
+            "sentiment_score": integer between 0 and 100,
+            "market_vibrancy": integer between 0 and 100,
+            "top_categories": {{"Category Name 1": integer, "Category Name 2": integer}},
+            "trending_keywords": {{"Keyword 1": integer, "Keyword 2": integer}},
+            "thai_summary": "string containing 1 sentence summary in Thai tailored for Kudsan/Bellinee's executives"
+        }}
         """
+    elif mode == "Social":
+        prompt = f"""
+        {brand_context}
+        คุณคือผู้เชี่ยวชาญด้าน 'Social Listening' และพฤติกรรมผู้บริโภคชาวไทย (เช่น ชาว Pantip, X/Twitter, TikTok)
+        หัวข้อที่สนใจคือ: '{safe_focus if safe_focus else 'เทรนด์ร้านกาแฟและเบเกอรี่ทั่วไป'}'
         
-        base_instruction = "IMPORTANT: คุณต้องตอบเป็นภาษาไทยเท่านั้น โดยสรุปเนื้อหาให้เป็นมืออาชีพ นำไปใช้งานเจาะตลาดไทยแข่งกับแบรนด์อื่นได้จริง ห้ามใช้ HTML tags เด็ดขาด"
-        
-        gen_config = genai.types.GenerationConfig(temperature=0.7)
-        
-        if mode == "Dashboard":
-            # บังคับโครงสร้างเป็น JSON 100% สำหรับการทำ Data Visualization
-            gen_config = genai.types.GenerationConfig(temperature=0.2, response_mime_type="application/json")
-            prompt = f"""
-            Analyze these news headlines and provide a JSON response for a business dashboard.
-            Headlines: {context}
-            Focus Topic: {safe_focus}
-            Required JSON Schema:
-            {{
-                "sentiment_score": integer between 0 and 100,
-                "market_vibrancy": integer between 0 and 100,
-                "top_categories": {{"Category Name 1": integer, "Category Name 2": integer}},
-                "trending_keywords": {{"Keyword 1": integer, "Keyword 2": integer}},
-                "thai_summary": "string containing 1 sentence summary in Thai tailored for Kudsan/Bellinee's executives"
-            }}
-            """
-        elif mode == "Social":
-            prompt = f"""
-            {brand_context}
-            คุณคือผู้เชี่ยวชาญด้าน 'Social Listening' และพฤติกรรมผู้บริโภคชาวไทย (เช่น ชาว Pantip, X/Twitter, TikTok)
-            หัวข้อที่สนใจคือ: '{safe_focus if safe_focus else 'เทรนด์ร้านกาแฟและเบเกอรี่ทั่วไป'}'
-            
-            โปรดวิเคราะห์ 'เสียงสะท้อนของลูกค้า (Voice of Customer)' ในตลาดไทยปัจจุบัน โดยแบ่งเป็น 4 ส่วนดังนี้:
-            1. 💬 สิ่งที่ลูกค้าชาวไทย 'ชอบ' และ 'ชื่นชม' (Gain Points / Expectations)
-            2. 😡 สิ่งที่ลูกค้าชาวไทยมัก 'บ่น' หรือ 'ไม่พอใจ' จากแบรนด์คู่แข่ง (Pain Points / Complaints เช่น ราคา, รสชาติ, บริการ)
-            3. 🎯 โอกาสทอง (Unmet Needs) ที่ Kudsan หรือ Bellinee's สามารถเข้าไปแก้ปัญหาจากข้อ 2 ได้
-            4. 📝 ตัวอย่างคอมเมนต์จำลองสไตล์คนไทย 4 คอมเมนต์ (คำพูดสมจริง มีทั้งบวกและลบ เช่น "ทำไมสาขานี้..." หรือ "อันนี้อร่อยมากก...")
-            {base_instruction}
-            """
-        elif mode == "Brief":
-            prompt = f"{brand_context}\nสรุปข่าวเหล่านี้: {context}\nเน้นเรื่อง: {safe_focus}\nตอบ 3 หัวข้อสั้นๆ: 1. เทรนด์โลกตอนนี้ 2. ไอเดีย/Action โดนๆ สำหรับ Kudsan 3. ไอเดีย/Action พรีเมียมสำหรับ Bellinee's {base_instruction}"
-        elif mode == "Executive":
-            prompt = f"{brand_context}\nวิเคราะห์แผนงานระดับผู้บริหารสำหรับ: {safe_focus}\nอ้างอิงข้อมูล: {context}\nแบ่งเป็น 5 ส่วน: 1. Global Insights 2. แผนเอาชนะคู่แข่งในตลาดไทย 3. Roadmap สำหรับ Kudsan 4. Roadmap สำหรับ Bellinee's 5. Risk & Resources {base_instruction}"
-        else:
-            prompt = f"{brand_context}\nวิเคราะห์ภาพรวมกลยุทธ์สินค้าสำหรับ: {safe_focus}\nข้อมูลอ้างอิง: {context}\nแบ่งเป็น 4 ส่วน: 1. Global Trends 2. ไอเดียเมนู/แพ็กเกจจิ้งใหม่สำหรับ Kudsan 3. ไอเดียเมนู Signature/Pairings สำหรับ Bellinee's 4. การปรับตัวให้เข้ากับลิ้นคนไทยและการทำการตลาด (Thai Adaptation) {base_instruction}"
+        โปรดวิเคราะห์ 'เสียงสะท้อนของลูกค้า (Voice of Customer)' ในตลาดไทยปัจจุบัน โดยแบ่งเป็น 4 ส่วนดังนี้:
+        1. 💬 สิ่งที่ลูกค้าชาวไทย 'ชอบ' และ 'ชื่นชม' (Gain Points / Expectations)
+        2. 😡 สิ่งที่ลูกค้าชาวไทยมัก 'บ่น' หรือ 'ไม่พอใจ' จากแบรนด์คู่แข่ง (Pain Points / Complaints เช่น ราคา, รสชาติ, บริการ)
+        3. 🎯 โอกาสทอง (Unmet Needs) ที่ Kudsan หรือ Bellinee's สามารถเข้าไปแก้ปัญหาจากข้อ 2 ได้
+        4. 📝 ตัวอย่างคอมเมนต์จำลองสไตล์คนไทย 4 คอมเมนต์ (คำพูดสมจริง มีทั้งบวกและลบ เช่น "ทำไมสาขานี้..." หรือ "อันนี้อร่อยมากก...")
+        {base_instruction}
+        """
+    elif mode == "Brief":
+        prompt = f"{brand_context}\nสรุปข่าวเหล่านี้: {context}\nเน้นเรื่อง: {safe_focus}\nตอบ 3 หัวข้อสั้นๆ: 1. เทรนด์โลกตอนนี้ 2. ไอเดีย/Action โดนๆ สำหรับ Kudsan 3. ไอเดีย/Action พรีเมียมสำหรับ Bellinee's {base_instruction}"
+    elif mode == "Executive":
+        prompt = f"{brand_context}\nวิเคราะห์แผนงานระดับผู้บริหารสำหรับ: {safe_focus}\nอ้างอิงข้อมูล: {context}\nแบ่งเป็น 5 ส่วน: 1. Global Insights 2. แผนเอาชนะคู่แข่งในตลาดไทย 3. Roadmap สำหรับ Kudsan 4. Roadmap สำหรับ Bellinee's 5. Risk & Resources {base_instruction}"
+    else:
+        prompt = f"{brand_context}\nวิเคราะห์ภาพรวมกลยุทธ์สินค้าสำหรับ: {safe_focus}\nข้อมูลอ้างอิง: {context}\nแบ่งเป็น 4 ส่วน: 1. Global Trends 2. ไอเดียเมนู/แพ็กเกจจิ้งใหม่สำหรับ Kudsan 3. ไอเดียเมนู Signature/Pairings สำหรับ Bellinee's 4. การปรับตัวให้เข้ากับลิ้นคนไทยและการทำการตลาด (Thai Adaptation) {base_instruction}"
 
-        for model_name in models_to_try:
-            try:
-                model = genai.GenerativeModel(model_name=model_name)
-                response = model.generate_content(prompt, generation_config=gen_config)
-                
-                if mode == "Dashboard": 
-                    return response.text
-                    
-                # ป้องกัน XSS Injection ก่อนแสดงผล
-                safe_response = response.text.replace("<", "&lt;").replace(">", "&gt;")
-                return f"*(Analysed by: `{model_name}`)*\n\n" + safe_response
-            except Exception as e:
-                print(f"Model Error ({model_name}): {e}") 
-                continue
-                
-        return "❌ AI Processing Failed. ขัดข้องหรือโควต้ารายวันอาจจะเต็ม กรุณาลองใหม่ภายหลัง"
-    except Exception as e: 
-        print(f"System Error: {str(e)}")
-        return "❌ ระบบขัดข้องในการเชื่อมต่อ AI กรุณาตรวจสอบการตั้งค่า"
+    for model_name in models_to_try:
+        try:
+            model = genai.GenerativeModel(model_name=model_name)
+            response = model.generate_content(prompt, generation_config=gen_config)
+            
+            if mode == "Dashboard": return response.text
+            return f"*(Analysed by: `{model_name}`)*\n\n" + response.text.replace("<", "&lt;").replace(">", "&gt;")
+        except Exception:
+            continue
+            
+    return "❌ AI Processing Failed. ขัดข้องหรือโควต้ารายวันอาจจะเต็ม กรุณาลองใหม่ภายหลัง"
+
+def analyze_trends(api_key: str, news_list: list[str], focus_topic: str, mode: str = "General") -> str:
+    """Wrapper สำหรับนับการใช้งานและอัปเดตเวลา Cooldown ก่อนเรียก AI จริง"""
+    if not api_key: return "⚠️ Please provide a Gemini API Key in the sidebar."
+    
+    context = "\n- ".join(news_list)
+    safe_focus = sanitize_input(focus_topic)
+    
+    # อัปเดต State การใช้งาน
+    st.session_state.last_ai_time = time.time()
+    st.session_state.daily_ai_count += 1
+    
+    # เรียกใช้ฟังก์ชัน AI ที่มีระบบ Cache
+    return _get_ai_response(api_key, context, safe_focus, mode)
 
 # --- UI Header ---
-# ลบไอคอน 🥐 ออกจากหัวข้อหลักตามจุด "Delete" ในรูปภาพ
 st.markdown("<h1 style='text-align: center; margin-bottom: 0;'>Bakery & Coffee Global Insights</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; font-size: 1.1em; color: #8d6e63; margin-top: 0;'>Professional Market Intelligence Engine</p>", unsafe_allow_html=True)
 
@@ -239,7 +267,6 @@ st.write("")
 
 # --- Sidebar ---
 with st.sidebar:
-    # คงไอคอน ☕🥐 ไว้ในส่วน Sidebar Logo ตามจุด "Keep" ในรูปภาพ
     st.markdown("""
         <div style='text-align: center; padding: 10px 0 20px 0; border-bottom: 1px solid #e0e0e0; margin-bottom: 20px;'>
             <div style='font-size: 3.5rem; line-height: 1;'>☕🥐</div>
@@ -251,11 +278,20 @@ with st.sidebar:
     st.header("⚙️ SYSTEM CONTROL")
     api_key_input = st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, "secrets") else st.text_input("Gemini API Key:", type="password")
     
+    # ระบบรหัสผ่านรักษาความปลอดภัย
+    user_pass = st.text_input("Access Password:", type="password", help="กรุณาใส่รหัสผ่านเพื่อปลดล็อคการวิเคราะห์ AI")
+    is_authorized = (user_pass == ACCESS_PASSWORD)
+    
     st.divider()
     category_choice = st.selectbox("Market Domain:", ["Both", "Bakery", "Coffee"])
     user_focus = sanitize_input(st.text_input("Special Focus Area:", placeholder="e.g., Plant-based Milk"))
     
     st.divider()
+    # แสดงหลอดพลังงานการใช้งาน AI รายวัน
+    st.caption("AI Usage Quota (Today)")
+    st.progress(min(st.session_state.daily_ai_count / DAILY_AI_LIMIT, 1.0))
+    st.caption(f"Used: {st.session_state.daily_ai_count} / {DAILY_AI_LIMIT} Requests")
+    
     st.caption(f"Engine Status: {genai.__version__} | Secured")
     st.caption("© 2026 Bakery AI Intelligence Platform")
 
@@ -286,70 +322,104 @@ with tab1:
 with tab2:
     if 'news_data' in st.session_state:
         st.subheader("AI Strategic Product Analysis (Kudsan & Bellinee's Focus)")
-        if st.button("✨ Synthesize Strategy"):
-            with st.spinner("Analysing global trends for your brands..."):
-                analysis = analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "General")
-                st.markdown(f'<div class="report-card">{analysis}</div>', unsafe_allow_html=True)
+        allowed, msg = check_ai_allowance()
+        
+        if not is_authorized:
+            st.warning("🔒 กรุณาใส่รหัสผ่านใน Sidebar เพื่อปลดล็อคฟีเจอร์ AI")
+        else:
+            if st.button("✨ Synthesize Strategy", disabled=not allowed):
+                with st.spinner("Analysing global trends for your brands..."):
+                    analysis = analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "General")
+                    st.markdown(f'<div class="report-card">{analysis}</div>', unsafe_allow_html=True)
+            if not allowed:
+                st.caption(msg)
 
 with tab3:
     if 'news_data' in st.session_state:
         st.subheader("C-Level Roadmap (Kudsan & Bellinee's Focus)")
-        if st.button("🚀 Draft Roadmap"):
-            with st.spinner("Preparing executive roadmap..."):
-                roadmap = analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "Executive")
-                st.markdown(f'<div class="executive-card">{roadmap}</div>', unsafe_allow_html=True)
+        allowed, msg = check_ai_allowance()
+        
+        if not is_authorized:
+            st.warning("🔒 กรุณาใส่รหัสผ่านใน Sidebar เพื่อปลดล็อคฟีเจอร์ AI")
+        else:
+            if st.button("🚀 Draft Roadmap", disabled=not allowed):
+                with st.spinner("Preparing executive roadmap..."):
+                    roadmap = analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "Executive")
+                    st.markdown(f'<div class="executive-card">{roadmap}</div>', unsafe_allow_html=True)
+            if not allowed:
+                st.caption(msg)
 
 with tab4:
     if 'news_data' in st.session_state:
         st.subheader("Quick Insight Brief (Brand Specific)")
-        if st.button("⚡ Get Summary"):
-            with st.spinner("Extracting core brief..."):
-                brief = analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "Brief")
-                st.markdown(f'<div class="insight-card">{brief}</div>', unsafe_allow_html=True)
+        allowed, msg = check_ai_allowance()
+        
+        if not is_authorized:
+            st.warning("🔒 กรุณาใส่รหัสผ่านใน Sidebar เพื่อปลดล็อคฟีเจอร์ AI")
+        else:
+            if st.button("⚡ Get Summary", disabled=not allowed):
+                with st.spinner("Extracting core brief..."):
+                    brief = analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "Brief")
+                    st.markdown(f'<div class="insight-card">{brief}</div>', unsafe_allow_html=True)
+            if not allowed:
+                st.caption(msg)
 
 with tab5:
     if 'news_data' in st.session_state:
         st.subheader("Strategic Market Dashboard")
-        if st.button("📊 Generate Visualization"):
-            with st.spinner("AI is quantifying market data..."):
-                raw_json = analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "Dashboard")
-                if "❌" in raw_json:
-                    st.error(raw_json)
-                else:
-                    try:
-                        dash_data = json.loads(raw_json)
-                        m1, m2 = st.columns(2)
-                        m1.metric("Sentiment Score", f"{dash_data.get('sentiment_score', 50)}/100")
-                        m2.metric("Market Vibrancy", f"{dash_data.get('market_vibrancy', 50)}%")
-                        st.divider()
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            st.markdown("#### 🔝 Market Categories")
-                            if dash_data.get('top_categories'):
-                                st.bar_chart(pd.DataFrame(dash_data['top_categories'].items(), columns=['Cat', 'Val']).set_index('Cat'))
-                            else:
-                                st.info("No category data available.")
-                        with c2:
-                            st.markdown("#### 🔍 Strategic Insight")
-                            st.info(dash_data.get('thai_summary', 'ไม่มีข้อสรุป'))
-                            st.markdown("#### ⭐ Hot Keywords")
-                            for kw, score in dash_data.get('trending_keywords', {}).items():
-                                st.write(f"**{kw}**")
-                                st.progress(min(max(score / 10, 0.0), 1.0))
-                    except json.JSONDecodeError:
-                        st.error("AI could not structure visual data securely. Please try again.")
+        allowed, msg = check_ai_allowance()
+        
+        if not is_authorized:
+            st.warning("🔒 กรุณาใส่รหัสผ่านใน Sidebar เพื่อปลดล็อคฟีเจอร์ AI")
+        else:
+            if st.button("📊 Generate Visualization", disabled=not allowed):
+                with st.spinner("AI is quantifying market data..."):
+                    raw_json = analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "Dashboard")
+                    if "❌" in raw_json:
+                        st.error(raw_json)
+                    else:
+                        try:
+                            dash_data = json.loads(raw_json)
+                            m1, m2 = st.columns(2)
+                            m1.metric("Sentiment Score", f"{dash_data.get('sentiment_score', 50)}/100")
+                            m2.metric("Market Vibrancy", f"{dash_data.get('market_vibrancy', 50)}%")
+                            st.divider()
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                st.markdown("#### 🔝 Market Categories")
+                                if dash_data.get('top_categories'):
+                                    st.bar_chart(pd.DataFrame(dash_data['top_categories'].items(), columns=['Cat', 'Val']).set_index('Cat'))
+                                else:
+                                    st.info("No category data available.")
+                            with c2:
+                                st.markdown("#### 🔍 Strategic Insight")
+                                st.info(dash_data.get('thai_summary', 'ไม่มีข้อสรุป'))
+                                st.markdown("#### ⭐ Hot Keywords")
+                                for kw, score in dash_data.get('trending_keywords', {}).items():
+                                    st.write(f"**{kw}**")
+                                    st.progress(min(max(score / 10, 0.0), 1.0))
+                        except json.JSONDecodeError:
+                            st.error("AI could not structure visual data securely. Please try again.")
+            if not allowed:
+                st.caption(msg)
     else:
         st.info("Fetch headlines first.")
 
-# --- แท็บที่ 6: Social Listening ---
 with tab6:
     if 'news_data' in st.session_state:
         st.subheader("AI Social Listening & Customer Insights")
         st.caption("จำลองเสียงสะท้อนผู้บริโภคชาวไทย (Pain Points & Gain Points) เพื่อหาช่องว่างทางการตลาด")
-        if st.button("🗣️ Analyze Customer Voice"):
-            with st.spinner("กำลังสแกนพฤติกรรมและความคิดเห็นของผู้บริโภคชาวไทย..."):
-                social_insight = analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "Social")
-                st.markdown(f'<div class="social-card">{social_insight}</div>', unsafe_allow_html=True)
+        allowed, msg = check_ai_allowance()
+        
+        if not is_authorized:
+            st.warning("🔒 กรุณาใส่รหัสผ่านใน Sidebar เพื่อปลดล็อคฟีเจอร์ AI")
+        else:
+            if st.button("🗣️ Analyze Customer Voice", disabled=not allowed):
+                with st.spinner("กำลังสแกนพฤติกรรมและความคิดเห็นของผู้บริโภคชาวไทย..."):
+                    social_insight = analyze_trends(api_key_input, st.session_state["news_data"], user_focus, "Social")
+                    st.markdown(f'<div class="social-card">{social_insight}</div>', unsafe_allow_html=True)
+            if not allowed:
+                st.caption(msg)
     else:
         st.info("Please fetch market headlines first.")
 
