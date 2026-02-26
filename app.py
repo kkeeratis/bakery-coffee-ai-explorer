@@ -225,6 +225,7 @@ def analyze_trends(api_key: str, news_list: list[str], focus_topic: str, mode: s
         return "❌ ระบบขัดข้องในการเชื่อมต่อ AI กรุณาตรวจสอบการตั้งค่า"
 
 # --- UI Header ---
+# ลบไอคอน 🥐 ออกจากหัวข้อหลักตามจุด "Delete" ในรูปภาพ
 st.markdown("<h1 style='text-align: center; margin-bottom: 0;'>Bakery & Coffee Global Insights</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; font-size: 1.1em; color: #8d6e63; margin-top: 0;'>Professional Market Intelligence Engine</p>", unsafe_allow_html=True)
 
@@ -238,8 +239,10 @@ st.write("")
 
 # --- Sidebar ---
 with st.sidebar:
+    # คงไอคอน ☕🥐 ไว้ในส่วน Sidebar Logo ตามจุด "Keep" ในรูปภาพ
     st.markdown("""
         <div style='text-align: center; padding: 10px 0 20px 0; border-bottom: 1px solid #e0e0e0; margin-bottom: 20px;'>
+            <div style='font-size: 3.5rem; line-height: 1;'>☕🥐</div>
             <h3 style='color: #4b3621; margin-top: 15px; margin-bottom: 0; font-weight: 700; font-size: 1.2rem; letter-spacing: 1px;'>AI INSIGHTS</h3>
             <p style='color: #8d6e63; font-size: 0.8rem; margin-top: 5px;'>Strategic Engine</p>
         </div>
